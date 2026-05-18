@@ -732,30 +732,57 @@
     const [editingNickname,setEditingNickname]=useState(false);
     const uid = user?.uid;
 
+    const SESSION_KEY = 'poop_lastActive';
+    const SESSION_TTL  = 3 * 24 * 60 * 60 * 1000; // 3 days inactivity = logout
+
+    const bumpSession = useCallback(()=>{
+      localStorage.setItem(SESSION_KEY, Date.now().toString());
+    },[]);
+
     // Step 1 — Auth: always resolves within 5s
     useEffect(()=>{
       const t = setTimeout(()=>setAuthReady(true), 5000);
       return auth.onAuthStateChanged(u=>{
         clearTimeout(t);
+        if(u){
+          const last = parseInt(localStorage.getItem(SESSION_KEY)||'0');
+          if(last && Date.now()-last > SESSION_TTL){
+            // Session expired — silent sign-out
+            auth.signOut();
+            localStorage.removeItem(SESSION_KEY);
+            setUser(null);
+            setAuthReady(true);
+            return;
+          }
+          // Still valid — refresh the timer
+          localStorage.setItem(SESSION_KEY, Date.now().toString());
+        }
         setUser(u||null);
         setAuthReady(true);
       });
     },[]);
 
-    // Step 2 — Load user doc once with get() (faster than onSnapshot for initial load)
+    // Step 2 — Load user doc once with get()
     useEffect(()=>{
-      if(!uid){ setDataReady(false); return; }
+      if(!uid){ setDataReady(false); setNickname(null); return; }
+      // Apply cached nickname immediately so no popup flicker on refresh
+      const cached = localStorage.getItem(`poop_nick_${uid}`);
+      if(cached) setNickname(cached);
       setDataReady(false);
-      const t = setTimeout(()=>setDataReady(true), 5000); // hard timeout
+      const t = setTimeout(()=>setDataReady(true), 8000);
       db.collection("users").doc(uid).get()
         .then(snap=>{
           clearTimeout(t);
           if(snap.exists()){
+            const nick = snap.data().nickname||null;
             setLog(snap.data().log||[]);
-            setNickname(snap.data().nickname||null);
+            setNickname(nick);
+            if(nick) localStorage.setItem(`poop_nick_${uid}`, nick);
+            else localStorage.removeItem(`poop_nick_${uid}`);
           } else {
             setLog([]);
-            setNickname(null);
+            // Keep cached nickname if Firestore doc doesn't exist yet
+            if(!cached) setNickname(null);
           }
           setDataReady(true);
         })
@@ -820,40 +847,46 @@
         mutate(next);
         return next;
       });
+      bumpSession();
       spawnConfetti();
       toast(pickRandom(["Logged. The throne remembers.","Plop registered. Mighty.","Bowl bowed. Logged.","Counter incremented. Hydrate.","+1 plop. Form: pristine."]));
-    },[uid,mutate]);
+    },[uid,mutate,bumpSession]);
 
     const undoLast=useCallback(()=>{
       if(!uid) return;
       setLog(prev=>{const next=prev.length?prev.slice(0,-1):prev;mutate(next);return next;});
+      bumpSession();
       toast("Undone. Never happened.");
-    },[uid,mutate]);
+    },[uid,mutate,bumpSession]);
 
     const deleteOne=useCallback((ts)=>{
       if(!uid) return;
       setLog(prev=>{const next=prev.filter(x=>x!==ts);mutate(next);return next;});
+      bumpSession();
       toast("Entry erased.");
-    },[uid,mutate]);
+    },[uid,mutate,bumpSession]);
 
     const resetAll=useCallback(()=>{
       if(!uid) return;
       if(confirm("Clear ALL plops? This cannot be undone.")){
-        setLog([]);mutate([]);toast("All entries cleared.");
+        setLog([]);mutate([]);bumpSession();toast("All entries cleared.");
       }
-    },[uid,mutate]);
+    },[uid,mutate,bumpSession]);
 
     const handleNicknameSaved=(nick)=>{
       setNickname(nick);
       setEditingNickname(false);
+      if(uid) localStorage.setItem(`poop_nick_${uid}`, nick);
+      bumpSession();
       toast(`Throne name set: ${nick} 👑`);
     };
 
     // ── Render logic ──
-    if(!authReady || (user && !dataReady)) return <LoadingScreen/>;
+    // Show loading only when auth isn't ready, or user is logged in but no nickname cached yet and data still loading
+    if(!authReady || (user && !dataReady && !nickname)) return <LoadingScreen/>;
     if(!user) return <LoginScreen/>;
 
-    // First time: no nickname yet
+    // First time: no nickname (Firestore confirmed, not just still loading)
     if(!nickname) return (
       <NicknameModal
         uid={uid}
