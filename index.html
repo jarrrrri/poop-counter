@@ -50,7 +50,7 @@
 
   /* Bottom tab bar */
   .nav{position:fixed;left:0;right:0;bottom:0;z-index:50;
-    display:grid;grid-template-columns:repeat(3,1fr);gap:0;
+    display:flex;justify-content:center;gap:0;
     background:rgba(246,241,231,.92);
     -webkit-backdrop-filter:blur(20px) saturate(160%);backdrop-filter:blur(20px) saturate(160%);
     border-top:1px solid var(--line);
@@ -416,10 +416,10 @@
     const loadLog = () => {
       try {
         const raw = localStorage.getItem(LS_KEY);
-        if (!raw) return seedLog();
+        if (!raw) return [];
         const arr = JSON.parse(raw);
-        return Array.isArray(arr) ? arr : seedLog();
-      } catch { return seedLog(); }
+        return Array.isArray(arr) ? arr : [];
+      } catch { return []; }
     };
     const saveLog = (arr) => { try { localStorage.setItem(LS_KEY, JSON.stringify(arr)); } catch {} };
 
@@ -679,55 +679,6 @@
       );
     }
 
-    // ─── Leaderboard ──────────────────────────────────────────────────────────
-    const FRIEND_SEED = [
-      { name:"Bea S.",   base:38 },
-      { name:"Cleo M.",  base:31 },
-      { name:"Theo K.",  base:24 },
-      { name:"Wren L.",  base:19 },
-      { name:"Jules P.", base:14 },
-      { name:"Mo R.",    base:11 },
-      { name:"Sam T.",   base:7  },
-    ];
-    function Leaderboard({ monthly, weekly }) {
-      const [period, setPeriod] = useState("monthly");
-      const myCount = period==="monthly" ? monthly : weekly;
-      const fakeMul = period==="monthly" ? 1 : 0.32;
-      const rows = FRIEND_SEED.map(f => ({
-        name: f.name,
-        count: Math.max(0, Math.round(f.base * fakeMul)),
-      })).concat([{ name: "You", count: myCount, isYou:true }])
-        .sort((a,b)=>b.count - a.count);
-      const top = rows[0].count || 1;
-      const medal = ["gold","silver","bronze"];
-      return (
-        <section className="card">
-          <h2>Hall of Plops</h2>
-          <div className="sub">How you stack up against your bathroom-rivals.</div>
-          <div className="lb-tabs" role="tablist">
-            {["weekly","monthly"].map(p=>(
-              <button key={p} aria-current={period===p} onClick={()=>setPeriod(p)}>
-                {p[0].toUpperCase()+p.slice(1)}
-              </button>
-            ))}
-          </div>
-          <div>
-            {rows.map((r,i) => (
-              <div key={r.name} className={"lb-row "+(medal[i]||"")}
-                   style={r.isYou?{background:"#fbe7b833",borderRadius:10}:{}}>
-                <div className="rk">{i<3?["🥇","🥈","🥉"][i]:"#"+(i+1)}</div>
-                <div>
-                  <div className="nm">{r.name} {r.isYou && <span style={{color:"var(--brand)",fontSize:11.5,marginLeft:6}}>● you</span>}</div>
-                  <div className="meta">{tierFor(period==="monthly"?r.count:r.count*3).name}</div>
-                </div>
-                <div className="bar2"><i style={{width: Math.round(r.count/top*100)+"%"}}/></div>
-                <div className="ct tabnum">{r.count}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      );
-    }
 
     // ─── Confetti ─────────────────────────────────────────────────────────────
     function spawnConfetti(){
@@ -887,7 +838,7 @@
               </div>
             </div>
             <nav className="nav" role="tablist">
-              {[["home","Today","💩"],["month","Month","📅"],["ranks","Ranks","🏆"]].map(([k,lbl,ico])=>(
+              {[["home","Today","💩"],["month","Month","📅"]].map(([k,lbl,ico])=>(
                 <button key={k} aria-current={view===k} onClick={()=>setView(k)}>
                   <span className="ti" aria-hidden="true">{ico}</span>
                   <span>{lbl}</span>
@@ -951,13 +902,6 @@
                     : <div style={{color:"var(--ink-2)"}}>No plops on record yet.</div>}
                 </section>
               </div>
-            </div>
-          )}
-
-          {view==="ranks" && (
-            <div className="grid two">
-              <TierCard monthlyCount={monthCount} />
-              <Leaderboard monthly={monthCount} weekly={weekCount} />
             </div>
           )}
 
