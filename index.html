@@ -736,16 +736,23 @@
     // Subscribe to user doc — loads log + nickname
     useEffect(()=>{
       if(!uid) return;
-      return db.collection("users").doc(uid).onSnapshot(snap=>{
-        if(snap.exists()){
-          const data=snap.data();
-          setLog(data.log||[]);
-          setNickname(data.nickname||null);
-        } else {
+      return db.collection("users").doc(uid).onSnapshot(
+        snap=>{
+          if(snap.exists()){
+            const data=snap.data();
+            setLog(data.log||[]);
+            setNickname(data.nickname||null);
+          } else {
+            setLog([]);
+            setNickname(null);
+          }
+        },
+        err=>{
+          console.error("Firestore error:", err);
           setLog([]);
           setNickname(null);
         }
-      });
+      );
     },[uid]);
 
     const [,force]=useState(0);
