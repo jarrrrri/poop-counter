@@ -720,61 +720,55 @@
 
   // ─── App ───────────────────────────────────────────────────────────────────
   function App(){
-    const [user,setUser]=useState(undefined);       // undefined=loading, null=logged out
-    const [nickname,setNickname]=useState(undefined); // undefined=loading, null=not set yet
-    const [log,setLog]=useState([]);
+    const [authReady, setAuthReady] = useState(false);
+    const [user, setUser] = useState(null);
+    const [dataReady, setDataReady] = useState(false);
+    const [nickname, setNickname] = useState(null);
+    const [log, setLog] = useState([]);
     const [view,setView]=useState("home");
     const [viewDate,setViewDate]=useState(()=>new Date());
     const [toast,toastNode]=useToast();
     const [milestone,setMilestone]=useState(null);
     const [editingNickname,setEditingNickname]=useState(false);
-    const uid=user?.uid;
+    const uid = user?.uid;
 
-    // Auth listener + timeout so loading never hangs forever
+    // Step 1 — Auth: always resolves within 5s
     useEffect(()=>{
-      const t = setTimeout(()=>setUser(u=>u===undefined?null:u), 6000);
-      const unsub = auth.onAuthStateChanged(u=>{
+      const t = setTimeout(()=>setAuthReady(true), 5000);
+      return auth.onAuthStateChanged(u=>{
         clearTimeout(t);
         setUser(u||null);
-        if(!u) setNickname(undefined);
+        setAuthReady(true);
       });
-      return ()=>{ clearTimeout(t); unsub(); };
     },[]);
 
-    // Subscribe to user doc — loads log + nickname
+    // Step 2 — Load user doc once with get() (faster than onSnapshot for initial load)
     useEffect(()=>{
-      if(!uid) return;
-      // Timeout fallback — if Firestore never responds, unblock the UI
-      const t = setTimeout(()=>{
-        setNickname(n=>n===undefined?null:n);
-      }, 6000);
-      let unsub;
-      try {
-        unsub = db.collection("users").doc(uid).onSnapshot(
-          snap=>{
-            clearTimeout(t);
-            if(snap.exists()){
-              const data=snap.data();
-              setLog(data.log||[]);
-              setNickname(data.nickname||null);
-            } else {
-              setLog([]);
-              setNickname(null);
-            }
-          },
-          err=>{
-            clearTimeout(t);
-            console.error("Firestore error:", err);
+      if(!uid){ setDataReady(false); return; }
+      setDataReady(false);
+      const t = setTimeout(()=>setDataReady(true), 5000); // hard timeout
+      db.collection("users").doc(uid).get()
+        .then(snap=>{
+          clearTimeout(t);
+          if(snap.exists()){
+            setLog(snap.data().log||[]);
+            setNickname(snap.data().nickname||null);
+          } else {
             setLog([]);
             setNickname(null);
           }
-        );
-      } catch(e) {
-        clearTimeout(t);
-        console.error("Firestore setup error:", e);
-        setNickname(null);
-      }
-      return ()=>{ clearTimeout(t); unsub?.(); };
+          setDataReady(true);
+        })
+        .catch(()=>{ clearTimeout(t); setDataReady(true); });
+    },[uid]);
+
+    // Step 3 — Real-time sync after initial load (updates log live)
+    useEffect(()=>{
+      if(!uid) return;
+      return db.collection("users").doc(uid).onSnapshot(
+        snap=>{ if(snap.exists()){ setLog(snap.data().log||[]); setNickname(snap.data().nickname||null); }},
+        ()=>{}
+      );
     },[uid]);
 
     const [,force]=useState(0);
@@ -856,11 +850,11 @@
     };
 
     // ── Render logic ──
-    if(user===undefined || (user && nickname===undefined)) return <LoadingScreen/>;
-    if(user===null) return <LoginScreen/>;
+    if(!authReady || (user && !dataReady)) return <LoadingScreen/>;
+    if(!user) return <LoginScreen/>;
 
     // First time: no nickname yet
-    if(nickname===null) return (
+    if(!nickname) return (
       <NicknameModal
         uid={uid}
         photoURL={user.photoURL}
