@@ -730,29 +730,51 @@
     const [editingNickname,setEditingNickname]=useState(false);
     const uid=user?.uid;
 
-    // Auth listener
-    useEffect(()=>auth.onAuthStateChanged(u=>{setUser(u||null);if(!u) setNickname(undefined);}),[]);
+    // Auth listener + timeout so loading never hangs forever
+    useEffect(()=>{
+      const t = setTimeout(()=>setUser(u=>u===undefined?null:u), 6000);
+      const unsub = auth.onAuthStateChanged(u=>{
+        clearTimeout(t);
+        setUser(u||null);
+        if(!u) setNickname(undefined);
+      });
+      return ()=>{ clearTimeout(t); unsub(); };
+    },[]);
 
     // Subscribe to user doc — loads log + nickname
     useEffect(()=>{
       if(!uid) return;
-      return db.collection("users").doc(uid).onSnapshot(
-        snap=>{
-          if(snap.exists()){
-            const data=snap.data();
-            setLog(data.log||[]);
-            setNickname(data.nickname||null);
-          } else {
+      // Timeout fallback — if Firestore never responds, unblock the UI
+      const t = setTimeout(()=>{
+        setNickname(n=>n===undefined?null:n);
+      }, 6000);
+      let unsub;
+      try {
+        unsub = db.collection("users").doc(uid).onSnapshot(
+          snap=>{
+            clearTimeout(t);
+            if(snap.exists()){
+              const data=snap.data();
+              setLog(data.log||[]);
+              setNickname(data.nickname||null);
+            } else {
+              setLog([]);
+              setNickname(null);
+            }
+          },
+          err=>{
+            clearTimeout(t);
+            console.error("Firestore error:", err);
             setLog([]);
             setNickname(null);
           }
-        },
-        err=>{
-          console.error("Firestore error:", err);
-          setLog([]);
-          setNickname(null);
-        }
-      );
+        );
+      } catch(e) {
+        clearTimeout(t);
+        console.error("Firestore setup error:", e);
+        setNickname(null);
+      }
+      return ()=>{ clearTimeout(t); unsub?.(); };
     },[uid]);
 
     const [,force]=useState(0);
